@@ -12,9 +12,9 @@ import globals
 
 import networkx as nx
 
-import BlackDuckUtils as bu
-import NpmUtils
-import MavenUtils
+from BlackDuckUtils import Utils as bu
+from BlackDuckUtils import NpmUtils
+from BlackDuckUtils import MavenUtils
 
 from blackduck import Client
 

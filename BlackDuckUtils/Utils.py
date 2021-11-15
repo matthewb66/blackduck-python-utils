@@ -10,8 +10,8 @@ import sys
 import zipfile
 import globals
 
-import NpmUtils
-import MavenUtils
+from BlackDuckUtils import NpmUtils
+from BlackDuckUtils import MavenUtils
 
 import networkx as nx
 

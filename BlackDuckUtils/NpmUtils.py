@@ -5,8 +5,7 @@ import sys
 
 import globals
 
-#from BlackDuckUtils import run_detect
-
+from BlackDuckUtils import Utils as bu
 
 def foo(bar):
     return bar
@@ -72,7 +71,7 @@ def attempt_indirect_upgrade(node_name, node_version, direct_name, direct_versio
         os.chdir("..")
         return False
 
-    pvurl, projname, vername, retval = run_detect(globals.detect_jar, [ "--blackduck.url=https://testing.blackduck.synopsys.com",
+    pvurl, projname, vername, retval = bu.run_detect(globals.detect_jar, [ "--blackduck.url=https://testing.blackduck.synopsys.com",
         "--blackduck.api.token=MDI0YTUxNzEtNWRlOS00ZWVjLWExMjgtYWJiODk4YjRjYjJlOjM4Mzk5Y2ZlLTJmOWItNDg1NC1hZTM4LWE4YjQwYjA4YzE2Yg==",
         "--detect.blackduck.scan.mode=rapid"])
 

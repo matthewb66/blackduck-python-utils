@@ -1,28 +1,30 @@
-import setuptools
-import platform
+import pathlib
+from setuptools import setup
 
-platform_system = platform.system()
+# The directory containing this file
+HERE = pathlib.Path(__file__).parent
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
+# The text of the README file
+README = (HERE / "README.md").read_text()
 
-setuptools.setup(
+# This call to setup() does all the work
+setup(
     name="blackduck-python-utils",
-    version="0.1.0",
+    version="0.1.3",
+    description="Python wrapper for common patterns used with Black Duck.",
+    long_description=README,
+    long_description_content_type="text/markdown",
+    url="https://github.com/synopsys-sig-community/BlackDuckUtils",
     author="James Croall",
     author_email="jcroall@synopsys.com",
-    description="Python wrapper for common patterns used with Black Duck.",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/synopsys-sig-community/blackduck-python-utils",
-    packages=setuptools.find_packages(),
-    install_requires=['blackduck>=1.0.4',
-                      'networkx'
-                      ],
+    license="Apache",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.0'
+    packages=["BlackDuckUtils"],
+    include_package_data=True,
+    install_requires=["blackduck", "networkx"]
 )
+
