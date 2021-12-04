@@ -149,10 +149,12 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
     print(json.dumps(upgrade_dict, indent=4))
 
     good_upgrade_dict = upgrade_dict.copy()
+    upgrade_count = 0
     for ind in [0, 1, 2]:
         # print(f'\nDETECT RUN TO TEST UPGRADES - {ind}')
         depver_list = []
         origdeps_list = []
+        test_upgrade_count = 0
         for dep in deps_list:
             if dep not in upgrade_dict.keys() or upgrade_dict[dep] is None or len(upgrade_dict[dep]) <= ind:
                 continue
@@ -165,6 +167,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
             artifactid = arr[2]
             depver_list.append([groupid, artifactid, version])
             origdeps_list.append(dep)
+            test_upgrade_count += 1
 
         if len(depver_list) == 0:
             # print('No upgrades to test')
@@ -172,7 +175,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
 
         if not create_pom(depver_list):
             os.chdir(origdir)
-            return None
+            return 0, None
 
         # print('DEPS TO TEST:')
         # print(depver_list)
@@ -192,15 +195,18 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
                     # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradedep}, {origdep}')
                     if artifactid == compname:
                         good_upgrade_dict[origdep].pop(ind)
+                        test_upgrade_count -= 1
                         break
+                upgrade_count += test_upgrade_count
         elif retval != 0:
+            # Other Detect failure - no upgrades determined
             for upgradedep, origdep in zip(depver_list, origdeps_list):
                 # print(f'MYDEBUG: VULNERABLE - {upgradedep}, {origdep}')
                 good_upgrade_dict[origdep].pop(ind)
         else:
             # Detect returned 0
             # All tested upgrades not vulnerable
-            pass
+            upgrade_count += test_upgrade_count
 
         os.remove('pom.xml')
 
@@ -209,7 +215,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
 
     os.chdir(origdir)
     dirname.cleanup()
-    return good_upgrade_dict
+    return upgrade_count, good_upgrade_dict
 
 
 def normalise_dep(dep):

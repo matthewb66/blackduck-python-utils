@@ -90,9 +90,11 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
     print(json.dumps(upgrade_dict, indent=4))
 
     good_upgrade_dict = upgrade_dict.copy()
+    upgrade_count = 0
     for ind in [0, 1, 2]:
         installed_packages = []
         package_deps_installed = []
+        test_upgrade_count = 0
         for dep in deps_list:
             arr = dep.split(':')
             forge = arr[0]
@@ -116,6 +118,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
             if ret == 0:
                 installed_packages.append([comp, version])
                 package_deps_installed.append(dep)
+                test_upgrade_count += 1
             else:
                 good_upgrade_dict[dep].pop(ind)
 
@@ -139,6 +142,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
                     # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradepkg}, {origdep}')
                     if upgradepkg[0] == compname:
                         good_upgrade_dict[origdep].pop(ind)
+                        upgrade_count += test_upgrade_count
                         break
         elif retval != 0:
             for upgradepkg, origdep in zip(installed_packages, package_deps_installed):
@@ -147,7 +151,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
         else:
             # Detect returned 0
             # All tested upgrades not vulnerable
-            pass
+            upgrade_count += test_upgrade_count
 
         os.remove('package.json')
         os.remove('package-lock.json')
@@ -158,7 +162,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
 
     os.chdir(origdir)
     dirname.cleanup()
-    return good_upgrade_dict
+    return upgrade_count, good_upgrade_dict
 
 
 def normalise_dep(dep):

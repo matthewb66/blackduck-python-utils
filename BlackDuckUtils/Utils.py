@@ -238,13 +238,13 @@ synopsys-detect?properties=DETECT_LATEST_7"
 
 def attempt_indirect_upgrade(pm, deps_list, upgrade_dict, detect_jar, connectopts, bd):
     if pm == 'npm':
-        good_upgrades_dict = NpmUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
+        upgrade_count, good_upgrades_dict = NpmUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     elif pm == 'maven':
-        good_upgrades_dict = MavenUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
+        upgrade_count, good_upgrades_dict = MavenUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     else:
         globals.printdebug(f'Cannot provide upgrade guidance for namepsace {pm}')
-        return None
-    return good_upgrades_dict
+        return 0, None
+    return upgrade_count, good_upgrades_dict
 
 
 def normalise_dep(pm, compid):
