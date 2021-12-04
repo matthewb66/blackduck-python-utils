@@ -25,7 +25,7 @@ def read_json_object(filepath):
 
 
 def zip_extract_files(zip_file, dir_name):
-    print("Extracting content of {} into {}".format(zip_file, dir_name))
+    # print("Extracting content of {} into {}".format(zip_file, dir_name))
     with zipfile.ZipFile(zip_file, 'r') as zip_ref:
         zip_ref.extractall(dir_name)
 

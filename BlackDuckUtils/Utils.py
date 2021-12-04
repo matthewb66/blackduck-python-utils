@@ -10,10 +10,13 @@ import sys
 # import zipfile
 import globals
 import requests
+import semver
 from pathlib import Path
 
 from BlackDuckUtils import NpmUtils
 from BlackDuckUtils import MavenUtils
+from BlackDuckUtils import bdio as bdio
+from BlackDuckUtils import BlackDuckOutput as bo
 
 # import networkx as nx
 # from blackduck import Client
@@ -28,11 +31,11 @@ def remove_cwd_from_filename(path):
     return new_filename
 
 
-def run_detect(jarfile, runargs):
+def run_detect(jarfile, runargs, show_output):
     if jarfile == '' or not os.path.isfile(jarfile):
         jarfile = get_detect_jar()
 
-    print('INFO: Running Black Duck Detect')
+    # print('INFO: Running Black Duck Detect')
 
     args = ['java', '-jar', jarfile]
     args += runargs
@@ -51,7 +54,8 @@ def run_detect(jarfile, runargs):
             if proc.poll() is not None and outp == '':
                 break
             if outp:
-                print(outp.strip())
+                if show_output:
+                    print(outp.strip())
                 bomstr = ' --- Black Duck Project BOM:'
                 projstr = ' --- Project name:'
                 verstr = ' --- Project version:'
@@ -69,21 +73,19 @@ def run_detect(jarfile, runargs):
     else:
         retval = proc.poll()
 
-    if retval != 0:
-        print('ERROR: Detect returned non-zero value')
-        # sys.exit(2)
-
-    if projname == '' or vername == '':
-        print('ERROR: No project or version identified from Detect run')
-        # sys.exit(3)
+    # if retval != 0:
+    #     print('INFO: Detect returned non-zero value')
+    #     # sys.exit(2)
+    #
+    # if projname == '' or vername == '':
+    #     print('ERROR: No project or version identified from Detect run')
+    #     # sys.exit(3)
 
     return '/'.join(pvurl.split('/')[:8]), projname, vername, retval
 
 
 def parse_component_id(component_id):
     comp_ns = component_id.split(':')[0]
-    comp_name = ""
-    comp_version = ""
 
     if comp_ns == "npmjs":
         comp_ns, comp_name, comp_version = NpmUtils.parse_component_id(component_id)
@@ -144,8 +146,8 @@ def line_num_for_phrase_in_file(phrase, filename):
     return -1
 
 
-def detect_package_file(detected_package_files, componentIdentifier, componentName):
-    comp_ns, comp_name, version = parse_component_id(componentIdentifier)
+def detect_package_file(detected_package_files, componentid):
+    comp_ns, comp_name, version = parse_component_id(componentid)
 
     for package_file in detected_package_files:
         globals.printdebug(f"DEBUG: Searching in '{package_file}' for '{comp_name}'")
@@ -234,12 +236,75 @@ synopsys-detect?properties=DETECT_LATEST_7"
     return ''
 
 
-def attempt_indirect_upgrade(comp_ns, comp_version, direct_name, direct_version, detect_jar):
-    print('utils_upgrade_indirect()')
-    if comp_ns == 'npmjs':
-        NpmUtils.attempt_indirect_upgrade(comp_ns, comp_version, direct_name, direct_version, detect_jar)
-    elif comp_ns == 'maven':
-        MavenUtils.attempt_indirect_upgrade(comp_ns, comp_version, direct_name, direct_version, detect_jar)
+def attempt_indirect_upgrade(pm, deps_list, upgrade_dict, detect_jar, connectopts, bd):
+    if pm == 'npm':
+        good_upgrades_dict = NpmUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
+    elif pm == 'maven':
+        good_upgrades_dict = MavenUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     else:
-        globals.printdebug(f'Cannot provide upgrade guidance for namepsace {comp_ns}')
-    return
+        globals.printdebug(f'Cannot provide upgrade guidance for namepsace {pm}')
+        return None
+    return good_upgrades_dict
+
+
+def normalise_dep(pm, compid):
+    # print('utils_upgrade_indirect()')
+    if pm == 'npm':
+        return NpmUtils.normalise_dep(compid)
+    elif pm == 'maven':
+        return MavenUtils.normalise_dep(compid)
+    else:
+        return
+
+
+def normalise_version(ver):
+    #
+    # 0. Check for training string for pre-releases
+    # 1. Replace separator chars
+    # 2. Check number of segments
+    # 3. Normalise to 3 segments
+    tempver = ver.lower()
+
+    for str in [
+        'alpha', 'beta', 'milestone', 'rc', 'cr', 'dev', 'nightly', 'snapshot', 'preview', 'prerelease', 'pre'
+    ]:
+        if tempver.find(str) != -1:
+            return None
+
+    arr = tempver.split('.')
+    if len(arr) == 3:
+        newver = tempver
+    elif len(arr) == 0:
+        return None
+    elif len(arr) > 3:
+        newver = '.'.join(arr[0:3])
+    elif len(arr) == 2:
+        newver = '.'.join(arr[0:2]) + '.0'
+    elif len(arr) == 1:
+        newver = f'{arr[0]}.0.0'
+    else:
+        return None
+
+    try:
+        tempver = semver.VersionInfo.parse(newver)
+    except Exception as e:
+        return None
+
+    return tempver
+
+
+def process_scan(scan_folder, bd, baseline_comp_cache, incremental, upgrade_indirect):
+    bdio_graph, bdio_projects = bdio.get_bdio_dependency_graph(scan_folder)
+
+    if len(bdio_projects) == 0:
+        print("ERROR: Unable to find base project in BDIO file")
+        sys.exit(1)
+
+    rapid_scan_data = bo.get_rapid_scan_results(scan_folder, bd)
+
+    dep_dict, direct_deps_to_upgrade, pm = bo.process_rapid_scan(rapid_scan_data['items'],
+                                                                 incremental,
+                                                                 baseline_comp_cache, bdio_graph,
+                                                                 bdio_projects, upgrade_indirect)
+    return rapid_scan_data, dep_dict, direct_deps_to_upgrade, pm
+

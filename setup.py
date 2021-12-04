@@ -25,5 +25,5 @@ setup(
     ],
     packages=["BlackDuckUtils"],
     include_package_data=True,
-    install_requires=["blackduck", "networkx", "requests"]
+    install_requires=["blackduck", "networkx", "requests", "semver"]
 )

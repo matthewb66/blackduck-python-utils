@@ -4,11 +4,13 @@ import re
 import globals
 # import sys
 import tempfile
+import json
 
 import xml.etree.ElementTree as ET
 
 # from BlackDuckUtils import run_detect
 from BlackDuckUtils import Utils as bu
+from BlackDuckUtils import BlackDuckOutput as bo
 
 
 class MyTreeBuilder(ET.TreeBuilder):
@@ -58,33 +60,38 @@ def upgrade_maven_dependency(package_file, component_name, current_version, comp
         version = dep.find('m:version', nsmap).text
 
         # TODO Also include organization name?
-        if (artifactId == component_name):
+        if artifactId == component_name:
             globals.printdebug(f"DEBUG:   Found GroupId={groupId} ArtifactId={artifactId} Version={version}")
             dep.find('m:version', nsmap).text = component_version
 
     xmlstr = ET.tostring(root, encoding='utf8', method='xml')
-    with open(dirname + "/" + package_file, "wb") as fp:
+    with open(dirname.name + "/" + package_file, "wb") as fp:
         fp.write(xmlstr)
 
     print(f"INFO: Updated Maven component in: {package_file}")
 
-    files_to_patch[package_file] = dirname + "/" + package_file
+    files_to_patch[package_file] = dirname.name + "/" + package_file
 
     return files_to_patch
 
 
-def create_pom(comp, version):
+def create_pom(deps):
     if os.path.isfile('pom.xml'):
         print('ERROR: Maven pom.xml file already exists')
         return False
 
-    arr = comp.split('.')
-    if len(arr) > 2:
-        groupid = '.'.join(arr[0:-1])
-        artifactid = arr[-1]
-    else:
-        groupid = comp
-        artifactid = comp
+    dep_text = ''
+    for dep in deps:
+        groupid = dep[0]
+        artifactid = dep[1]
+        version = dep[2]
+
+        dep_text += f'''    <dependency>
+        <groupId>{groupid}</groupId>
+        <artifactId>{artifactid}</artifactId>
+        <version>{version}</version>
+    </dependency>
+'''
 
     pom_contents = f'''<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -98,11 +105,7 @@ def create_pom(comp, version):
     <packaging>pom</packaging>
 
     <dependencies>
-    <dependency>
-        <groupId>{groupid}</groupId>
-        <artifactId>{artifactid}</artifactId>
-        <version>{version}</version>
-    </dependency>
+    {dep_text}
     </dependencies>
 </project>'''
     try:
@@ -114,8 +117,11 @@ def create_pom(comp, version):
     return True
 
 
-def attempt_indirect_upgrade(node_name, node_version, direct_name, direct_version, detect_jar):
-    print(f"INFO: Attempting to upgrade indirect dependency {node_name}@{node_version} via {direct_name}@{direct_version}")
+def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connection_opts, bd):
+    # create a pom.xml with all possible future direct_deps versions
+    # run rapid scan to check
+    output = 'blackduck-output'
+    # print(f'Vuln Deps = {json.dumps(deps_list, indent=4)}')
 
     get_detect_jar = True
     if detect_jar != '' and os.path.isfile(detect_jar):
@@ -132,18 +138,83 @@ def attempt_indirect_upgrade(node_name, node_version, direct_name, direct_versio
     origdir = os.getcwd()
     os.chdir(dirname.name)
 
-    if not create_pom(direct_name, direct_version):
-        os.chdir(origdir)
-        return False
+    # Need to test the short & long term upgrade guidance separately
+    detect_connection_opts.append("--detect.blackduck.scan.mode=RAPID")
+    detect_connection_opts.append("--detect.detector.buildless=true")
+    detect_connection_opts.append("--detect.maven.buildless.legacy.mode=false")
+    detect_connection_opts.append(f"--detect.output.path={output}")
+    detect_connection_opts.append("--detect.cleanup=false")
 
-    pvurl, projname, vername, retval = bu.run_detect(detect_jar, [ "--blackduck.url=https://testing.blackduck.synopsys.com",
-        "--blackduck.api.token=MDI0YTUxNzEtNWRlOS00ZWVjLWExMjgtYWJiODk4YjRjYjJlOjM4Mzk5Y2ZlLTJmOWItNDg1NC1hZTM4LWE4YjQwYjA4YzE2Yg==",
-        "--detect.blackduck.scan.mode=RAPID"])
+    print('POSSIBLE UPGRADES:')
+    print(json.dumps(upgrade_dict, indent=4))
 
-    if (retval > 0):
-        os.chdir(origdir)
-        return False
+    good_upgrade_dict = upgrade_dict.copy()
+    for ind in [0, 1, 2]:
+        # print(f'\nDETECT RUN TO TEST UPGRADES - {ind}')
+        depver_list = []
+        origdeps_list = []
+        for dep in deps_list:
+            if dep not in upgrade_dict.keys() or upgrade_dict[dep] is None or len(upgrade_dict[dep]) <= ind:
+                continue
+            version = upgrade_dict[dep][ind]
+            if version == '':
+                continue
+            arr = dep.split(':')
+            # forge = arr[0]
+            groupid = arr[1]
+            artifactid = arr[2]
+            depver_list.append([groupid, artifactid, version])
+            origdeps_list.append(dep)
+
+        if len(depver_list) == 0:
+            # print('No upgrades to test')
+            continue
+
+        if not create_pom(depver_list):
+            os.chdir(origdir)
+            return None
+
+        # print('DEPS TO TEST:')
+        # print(depver_list)
+        pvurl, projname, vername, retval = bu.run_detect(output, detect_connection_opts, False)
+
+        if retval == 3:
+            # Policy violation returned
+            rapid_scan_data, dep_dict, direct_deps_vuln, pm = bu.process_scan(output, bd, [], False, False)
+
+            # print(f'MYDEBUG: Vuln direct deps = {direct_deps_vuln}')
+            for vulndep in direct_deps_vuln:
+                arr = vulndep.split(':')
+                compname = arr[2]
+                #
+                # find comp in depver_list
+                for upgradedep, origdep in zip(depver_list, origdeps_list):
+                    # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradedep}, {origdep}')
+                    if artifactid == compname:
+                        good_upgrade_dict[origdep].pop(ind)
+                        break
+        elif retval != 0:
+            for upgradedep, origdep in zip(depver_list, origdeps_list):
+                # print(f'MYDEBUG: VULNERABLE - {upgradedep}, {origdep}')
+                good_upgrade_dict[origdep].pop(ind)
+        else:
+            # Detect returned 0
+            # All tested upgrades not vulnerable
+            pass
+
+        os.remove('pom.xml')
+
+    print('GOOD UPGRADES:')
+    print(json.dumps(good_upgrade_dict, indent=4))
 
     os.chdir(origdir)
     dirname.cleanup()
-    return True
+    return good_upgrade_dict
+
+
+def normalise_dep(dep):
+    #
+    # Replace / with :
+    if dep.find('http:') == 0:
+        dep = dep.replace('http:', '')
+    return dep.replace('/', ':')
