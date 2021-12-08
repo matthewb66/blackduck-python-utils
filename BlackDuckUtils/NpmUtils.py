@@ -71,13 +71,11 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
     test_dirdeps = deps_list
     good_upgrades = {}
     for ind in range(0, 3):
-        print(f'\nDETECT RUN TO TEST {len(test_dirdeps)} UPGRADES')
-        test_upgrade_list = []
-        test_origdeps_list = []
+        last_vulnerable_dirdeps = []
         #
         # Look for upgrades to test
         installed_packages = []
-        package_deps_installed = []
+        orig_deps_processed = []
         for dep in test_dirdeps:
             arr = dep.split(':')
             forge = arr[0]
@@ -100,11 +98,14 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
 
             if ret == 0:
                 installed_packages.append([comp, upgrade_version])
-                package_deps_installed.append(dep)
+                orig_deps_processed.append(dep)
+            else:
+                last_vulnerable_dirdeps.append(f"npmjs:{comp}/{upgrade_version}")
 
         if len(installed_packages) == 0:
             # print('No upgrades to test')
             continue
+        print(f'Validating {len(test_dirdeps)} potential upgrades')
 
         pvurl, projname, vername, retval = bu.run_detect('upgrade-tests', detect_connection_opts, False)
 
@@ -113,35 +114,33 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
             rapid_scan_data, dep_dict, direct_deps_vuln, pm = bu.process_scan('upgrade-tests', bd, [], False, False)
 
             # print(f'MYDEBUG: Vuln direct deps = {direct_deps_vuln}')
-            last_vulnerable_dirdeps = []
             for vulndep in direct_deps_vuln:
                 arr = vulndep.split(':')
                 compname = arr[2]
                 #
                 # find comp in depver_list
-                for upgradepkg, origdep in zip(installed_packages, package_deps_installed):
+                for upgradepkg, origdep in zip(installed_packages, orig_deps_processed):
                     # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradepkg}, {origdep}')
                     if upgradepkg[0] == compname:
                         last_vulnerable_dirdeps.append(origdep)
                         break
         elif retval != 0:
-            last_vulnerable_dirdeps = []
-            for upgradepkg, origdep in zip(installed_packages, package_deps_installed):
+            for upgradepkg, origdep in zip(installed_packages, orig_deps_processed):
                 # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradepkg}, {origdep}')
                 last_vulnerable_dirdeps.append(origdep)
         else:
             # Detect returned 0
             # All tested upgrades not vulnerable
-            last_vulnerable_dirdeps = []
+            pass
 
         os.remove('package.json')
         os.remove('package-lock.json')
         # rapid_scan_data = bo.get_rapid_scan_results('upgrade-tests', bd)
 
         # Process good upgrades
-        for dep, upgrade in zip(test_origdeps_list, test_upgrade_list):
-            if dep not in last_vulnerable_dirdeps:
-                good_upgrades[dep] = upgrade[2]
+        for upgrade, origdep in zip(installed_packages, orig_deps_processed):
+            if origdep not in last_vulnerable_dirdeps:
+                good_upgrades[origdep] = upgrade[1]
 
         test_dirdeps = last_vulnerable_dirdeps
 

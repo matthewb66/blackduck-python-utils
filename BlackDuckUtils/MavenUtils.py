@@ -132,7 +132,6 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
     test_dirdeps = deps_list
     good_upgrades = {}
     for ind in range(0, 3):
-        print(f'\nDETECT RUN TO TEST {len(test_dirdeps)} UPGRADES')
         test_upgrade_list = []
         test_origdeps_list = []
         #
@@ -153,6 +152,7 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
         if len(test_upgrade_list) == 0:
             # print('No upgrades to test')
             continue
+        print(f'Validating {len(test_dirdeps)} potential upgrades')
 
         if not create_pom(test_upgrade_list):
             return None
