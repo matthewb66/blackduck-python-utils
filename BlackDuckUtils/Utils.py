@@ -1,25 +1,16 @@
-# import argparse
-# import glob
-# import hashlib
 import json
 import os
-# import random
-# import re
-# import shutil
 import sys
-# import zipfile
 import globals
 import requests
 import semver
+import tempfile
 from pathlib import Path
 
 from BlackDuckUtils import NpmUtils
 from BlackDuckUtils import MavenUtils
 from BlackDuckUtils import bdio as bdio
 from BlackDuckUtils import BlackDuckOutput as bo
-
-# import networkx as nx
-# from blackduck import Client
 
 import subprocess
 
@@ -98,11 +89,11 @@ def parse_component_id(component_id):
     return comp_ns, comp_name, comp_version
 
 
-def get_upgrade_guidance(bd, componentIdentifier):
+def get_upgrade_guidance(bd, component_identifier):
     # Get component upgrade advice
-    globals.printdebug(f"DEBUG: Search for component '{componentIdentifier}'")
+    globals.printdebug(f"DEBUG: Search for component '{component_identifier}'")
     params = {
-        'q': [componentIdentifier]
+        'q': [component_identifier]
     }
     try:
         search_results = bd.get_items('/api/components', params=params)
@@ -123,25 +114,25 @@ def get_upgrade_guidance(bd, componentIdentifier):
     globals.printdebug("DEBUG: Component upgrade data=" + json.dumps(component_upgrade_data, indent=4) + "\n")
 
     if "longTerm" in component_upgrade_data.keys():
-        longTerm = component_upgrade_data['longTerm']['versionName']
+        long_term = component_upgrade_data['longTerm']['versionName']
     else:
-        longTerm = None
+        long_term = None
 
     if "shortTerm" in component_upgrade_data.keys():
-        shortTerm = component_upgrade_data['shortTerm']['versionName']
+        short_term = component_upgrade_data['shortTerm']['versionName']
     else:
-        shortTerm = None
+        short_term = None
 
-    return shortTerm, longTerm
+    return short_term, long_term
 
 
 def line_num_for_phrase_in_file(phrase, filename):
     try:
-        with open(filename,'r') as f:
+        with open(filename, 'r') as f:
             for (i, line) in enumerate(f):
                 if phrase.lower() in line.lower():
                     return i
-    except:
+    except Exception as e:
         return -1
     return -1
 
@@ -196,14 +187,14 @@ def get_detect_jar():
         return globals.detect_jar
 
     detect_jar_download_dir = os.getenv('DETECT_JAR_DOWNLOAD_DIR')
-    dir = ''
+    jdir = ''
     if detect_jar_download_dir is None or not os.path.isdir(detect_jar_download_dir):
-        dir = os.path.join(str(Path.home()), "synopsys-detect")
-        if not os.path.isdir(dir):
-            os.mkdir(dir)
-        dir = os.path.join(dir, 'download')
-        if not os.path.isdir(dir):
-            os.mkdir(dir)
+        jdir = os.path.join(str(Path.home()), "synopsys-detect")
+        if not os.path.isdir(jdir):
+            os.mkdir(jdir)
+        jdir = os.path.join(jdir, 'download')
+        if not os.path.isdir(jdir):
+            os.mkdir(jdir)
         # outfile = os.path.join(dir, "detect7.jar")
 
     url = "https://sig-repo.synopsys.com/api/storage/bds-integrations-release/com/synopsys/integration/\
@@ -218,7 +209,7 @@ synopsys-detect?properties=DETECT_LATEST_7"
         djar = rjson['properties']['DETECT_LATEST_7'][0]
         if djar != '':
             fname = djar.split('/')[-1]
-            jarpath = os.path.join(dir, fname)
+            jarpath = os.path.join(jdir, fname)
             if os.path.isfile(jarpath):
                 globals.detect_jar = jarpath
                 return jarpath
@@ -237,14 +228,38 @@ synopsys-detect?properties=DETECT_LATEST_7"
 
 
 def attempt_indirect_upgrade(pm, deps_list, upgrade_dict, detect_jar, connectopts, bd):
+    # create a pom.xml with all possible future direct_deps versions
+    # run rapid scan to check
+    # print(f'Vuln Deps = {json.dumps(deps_list, indent=4)}')
+
+    get_detect_jar = True
+    if detect_jar != '' and os.path.isfile(detect_jar):
+        get_detect_jar = False
+    elif globals.detect_jar != '' and os.path.isfile(detect_jar):
+        get_detect_jar = False
+
+    if get_detect_jar:
+        detect_jar = get_detect_jar()
+
+    # dirname = "snps-upgrade-" + direct_name + "-" + direct_version
+    dirname = tempfile.TemporaryDirectory()
+    # os.mkdir(dirname)
+    origdir = os.getcwd()
+    os.chdir(dirname.name)
+
     if pm == 'npm':
-        upgrade_count, good_upgrades_dict = NpmUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
+        good_upgrades_dict = NpmUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     elif pm == 'maven':
-        upgrade_count, good_upgrades_dict = MavenUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
+        good_upgrades_dict = MavenUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     else:
         globals.printdebug(f'Cannot provide upgrade guidance for namepsace {pm}')
+        os.chdir(origdir)
+        dirname.cleanup()
         return 0, None
-    return upgrade_count, good_upgrades_dict
+
+    os.chdir(origdir)
+    dirname.cleanup()
+    return good_upgrades_dict
 
 
 def normalise_dep(pm, compid):
@@ -265,10 +280,10 @@ def normalise_version(ver):
     # 3. Normalise to 3 segments
     tempver = ver.lower()
 
-    for str in [
+    for cstr in [
         'alpha', 'beta', 'milestone', 'rc', 'cr', 'dev', 'nightly', 'snapshot', 'preview', 'prerelease', 'pre'
     ]:
-        if tempver.find(str) != -1:
+        if tempver.find(cstr) != -1:
             return None
 
     arr = tempver.split('.')
@@ -307,4 +322,3 @@ def process_scan(scan_folder, bd, baseline_comp_cache, incremental, upgrade_indi
                                                                  baseline_comp_cache, bdio_graph,
                                                                  bdio_projects, upgrade_indirect)
     return rapid_scan_data, dep_dict, direct_deps_to_upgrade, pm
-

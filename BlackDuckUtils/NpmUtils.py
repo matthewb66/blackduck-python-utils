@@ -1,7 +1,6 @@
 import os
 import re
 import shutil
-# import sys
 
 import globals
 import tempfile
@@ -60,42 +59,26 @@ def upgrade_npm_dependency(package_file, component_name, current_version, compon
 
 
 def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connection_opts, bd):
-    # create a pom.xml with all possible future direct_deps versions
-    # run rapid scan to check
-    output = 'blackduck-output'
-    # print(f'Vuln Deps = {json.dumps(deps_list, indent=4)}')
-
-    get_detect_jar = True
-    if detect_jar != '' and os.path.isfile(detect_jar):
-        get_detect_jar = False
-    elif globals.detect_jar != '' and os.path.isfile(detect_jar):
-        get_detect_jar = False
-
-    if get_detect_jar:
-        globals.detect_jar = bu.get_detect_jar()
-
-    # print(upgrade_dict)
-    # dirname = "snps-upgrade-" + direct_name + "-" + direct_version
-    dirname = tempfile.TemporaryDirectory()
-    # os.mkdir(dirname)
-    origdir = os.getcwd()
-    os.chdir(dirname.name)
-
     # Need to test the short & long term upgrade guidance separately
     detect_connection_opts.append("--detect.blackduck.scan.mode=RAPID")
-    detect_connection_opts.append("--detect.output.path=blackduck-output")
+    detect_connection_opts.append("--detect.output.path=upgrade-tests")
     detect_connection_opts.append("--detect.cleanup=false")
 
     print('POSSIBLE UPGRADES:')
     print(json.dumps(upgrade_dict, indent=4))
 
-    good_upgrade_dict = upgrade_dict.copy()
-    upgrade_count = 0
-    for ind in [0, 1, 2]:
+    # vulnerable_upgrade_list = []
+    test_dirdeps = deps_list
+    good_upgrades = {}
+    for ind in range(0, 3):
+        print(f'\nDETECT RUN TO TEST {len(test_dirdeps)} UPGRADES')
+        test_upgrade_list = []
+        test_origdeps_list = []
+        #
+        # Look for upgrades to test
         installed_packages = []
         package_deps_installed = []
-        test_upgrade_count = 0
-        for dep in deps_list:
+        for dep in test_dirdeps:
             arr = dep.split(':')
             forge = arr[0]
             arr2 = arr[1].split('/')
@@ -106,33 +89,31 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
                 # print(f'No Upgrade {ind} available for {dstring}')
                 continue
 
-            version = upgrade_dict[dstring][ind]
-            if version == '':
+            upgrade_version = upgrade_dict[dstring][ind]
+            if upgrade_version == '':
                 continue
             # print(f'DEBUG: Upgrade dep = {comp}@{version}')
 
-            cmd = f"npm install {comp}@{version} --package-lock-only >/dev/null 2>&1"
+            cmd = f"npm install {comp}@{upgrade_version} --package-lock-only >/dev/null 2>&1"
             print(cmd)
             ret = os.system(cmd)
 
             if ret == 0:
-                installed_packages.append([comp, version])
+                installed_packages.append([comp, upgrade_version])
                 package_deps_installed.append(dep)
-                test_upgrade_count += 1
-            else:
-                good_upgrade_dict[dep].pop(ind)
 
         if len(installed_packages) == 0:
-            print('No upgrades to test')
+            # print('No upgrades to test')
             continue
 
-        pvurl, projname, vername, retval = bu.run_detect(output, detect_connection_opts, False)
+        pvurl, projname, vername, retval = bu.run_detect('upgrade-tests', detect_connection_opts, False)
 
         if retval == 3:
             # Policy violation returned
-            rapid_scan_data, dep_dict, direct_deps_vuln, pm = bu.process_scan(output, bd, [], False, False)
+            rapid_scan_data, dep_dict, direct_deps_vuln, pm = bu.process_scan('upgrade-tests', bd, [], False, False)
 
             # print(f'MYDEBUG: Vuln direct deps = {direct_deps_vuln}')
+            last_vulnerable_dirdeps = []
             for vulndep in direct_deps_vuln:
                 arr = vulndep.split(':')
                 compname = arr[2]
@@ -141,28 +122,32 @@ def attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, detect_connect
                 for upgradepkg, origdep in zip(installed_packages, package_deps_installed):
                     # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradepkg}, {origdep}')
                     if upgradepkg[0] == compname:
-                        good_upgrade_dict[origdep].pop(ind)
-                        upgrade_count += test_upgrade_count
+                        last_vulnerable_dirdeps.append(origdep)
                         break
         elif retval != 0:
+            last_vulnerable_dirdeps = []
             for upgradepkg, origdep in zip(installed_packages, package_deps_installed):
                 # print(f'MYDEBUG: {compname} is VULNERABLE - {upgradepkg}, {origdep}')
-                good_upgrade_dict[origdep].pop(ind)
+                last_vulnerable_dirdeps.append(origdep)
         else:
             # Detect returned 0
             # All tested upgrades not vulnerable
-            upgrade_count += test_upgrade_count
+            last_vulnerable_dirdeps = []
 
         os.remove('package.json')
         os.remove('package-lock.json')
-        rapid_scan_data = bo.get_rapid_scan_results('blackduck-output', bd)
+        # rapid_scan_data = bo.get_rapid_scan_results('upgrade-tests', bd)
+
+        # Process good upgrades
+        for dep, upgrade in zip(test_origdeps_list, test_upgrade_list):
+            if dep not in last_vulnerable_dirdeps:
+                good_upgrades[dep] = upgrade[2]
+
+        test_dirdeps = last_vulnerable_dirdeps
 
     print('GOOD UPGRADES:')
-    print(json.dumps(good_upgrade_dict, indent=4))
-
-    os.chdir(origdir)
-    dirname.cleanup()
-    return upgrade_count, good_upgrade_dict
+    print(json.dumps(good_upgrades, indent=4))
+    return good_upgrades
 
 
 def normalise_dep(dep):
