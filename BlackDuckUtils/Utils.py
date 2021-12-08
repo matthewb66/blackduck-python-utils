@@ -322,3 +322,83 @@ def process_scan(scan_folder, bd, baseline_comp_cache, incremental, upgrade_indi
                                                                  baseline_comp_cache, bdio_graph,
                                                                  bdio_projects, upgrade_indirect)
     return rapid_scan_data, dep_dict, direct_deps_to_upgrade, pm
+
+
+def find_upgrade_versions(dirdep, versions_list, origin_dict, guidance_list):
+    # Clean & check the dependency string
+    moddep = dirdep.replace(':', '@').replace('/', '@')
+    a_dirdep = moddep.split('@')
+    if len(a_dirdep) < 3:
+        return
+    origin = a_dirdep[0]
+    # component_name = arr[1]
+    current_version = a_dirdep[-1]
+    v_curr = normalise_version(current_version)
+    if v_curr is None:
+        return
+
+    future_vers = []
+    for ver, url in versions_list[::-1]:
+        v_ver = normalise_version(ver)
+        if v_ver is None:
+            continue
+
+        # Check if entry exists in origins_dict
+        id = f"{dirdep}/{ver}"
+        if id in origin_dict:
+            for over in origin_dict[id]:
+                if 'originName' in over and 'originId' in over and over['originName'] == origin:
+                    a_over = over['originId'].split(':')
+                    if a_over[0] == a_dirdep[1] and a_over[1] == a_dirdep[2]:
+                        future_vers.append([ver, url])
+                        break
+
+    def find_next_ver(verslist, major, minor, patch):
+        foundver = ''
+        found_rels = [1000, -1, -1]
+
+        for ver, url in verslist:
+            v_ver = normalise_version(ver)
+            if major < v_ver.major < found_rels[0]:
+                found_rels = [v_ver.major, v_ver.minor, v_ver.patch]
+                foundver = ver
+            elif v_ver.major == major:
+                if v_ver.minor > found_rels[1] and v_ver.minor > minor:
+                    found_rels = [major, v_ver.minor, v_ver.patch]
+                    foundver = ver
+                elif v_ver.minor == found_rels[1] and v_ver.patch > found_rels[2] and v_ver.patch > patch:
+                    found_rels = [major, v_ver.minor, v_ver.patch]
+                    foundver = ver
+
+        return foundver, found_rels[0]
+
+    #
+    # Find the initial upgrade (either latest in current version major range or guidance_short)
+    v_guidance_short = normalise_version(guidance_list[0])
+    v_guidance_long = normalise_version(guidance_list[1])
+    foundvers = []
+    if v_guidance_short is None:
+        # Find final version in current major range
+        verstring, guidance_major_last = find_next_ver(future_vers, v_curr.major, v_curr.minor, v_curr.patch)
+    else:
+        verstring = guidance_list[0]
+        guidance_major_last = v_guidance_short.major + 1
+    if verstring != '':
+        foundvers.append(verstring)
+
+    if v_guidance_long is None:
+        # Find final minor version in next major range
+        verstring, guidance_major_last = find_next_ver(future_vers, guidance_major_last, -1, -1)
+    else:
+        verstring = guidance_list[1]
+        guidance_major_last = v_guidance_long.major
+    if verstring != '':
+        foundvers.append(verstring)
+
+    while len(foundvers) <= 3:
+        verstring, guidance_major_last = find_next_ver(future_vers, guidance_major_last + 1, -1, -1)
+        if verstring == '':
+            break
+        foundvers.append(verstring)
+
+    return foundvers
