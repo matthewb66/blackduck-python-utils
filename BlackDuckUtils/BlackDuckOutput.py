@@ -15,6 +15,7 @@ import networkx as nx
 from BlackDuckUtils import Utils as bu
 from BlackDuckUtils import NpmUtils
 from BlackDuckUtils import MavenUtils
+from BlackDuckUtils import NugetUtils
 
 
 def get_blackduck_status(output_dir):
@@ -84,6 +85,7 @@ def get_rapid_scan_results(output_dir, bd):
 
 
 def process_rapid_scan(rapid_scan_data, incremental, baseline_comp_cache, bdio_graph, bdio_projects, upgrade_indirect):
+    import networkx as nx
     pm = ''
 
     # Process all deps
@@ -132,6 +134,13 @@ version {item['versionName']} because it was not seen in baseline")
                 sys.exit(1)
             else:
                 pm = 'maven'
+        elif comp_ns == "nuget":
+            http_name = NugetUtils.convert_to_bdio(item['componentIdentifier'])
+            if pm != '' and pm != 'nuget':
+                print(f"ERROR: Mixed package managers not supported")
+                sys.exit(1)
+            else:
+                pm = 'nuget'
         else:
             print(f"ERROR: Domain '{comp_ns}' not supported yet")
             sys.exit(1)

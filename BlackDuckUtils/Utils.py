@@ -9,6 +9,7 @@ from pathlib import Path
 
 from BlackDuckUtils import NpmUtils
 from BlackDuckUtils import MavenUtils
+from BlackDuckUtils import NugetUtils
 from BlackDuckUtils import bdio as bdio
 from BlackDuckUtils import BlackDuckOutput as bo
 
@@ -82,6 +83,8 @@ def parse_component_id(component_id):
         comp_ns, comp_name, comp_version = NpmUtils.parse_component_id(component_id)
     elif comp_ns == "maven":
         comp_ns, comp_name, comp_version = MavenUtils.parse_component_id(component_id)
+    elif comp_ns == "nuget":
+        comp_ns, comp_name, comp_version = NugetUtils.parse_component_id(component_id)
     else:
         print(f"ERROR: Package domain '{comp_ns}' is unsupported at this time")
         sys.exit(1)
@@ -251,6 +254,8 @@ def attempt_indirect_upgrade(pm, deps_list, upgrade_dict, detect_jar, connectopt
         good_upgrades_dict = NpmUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     elif pm == 'maven':
         good_upgrades_dict = MavenUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
+    elif pm == 'nuget':
+        good_upgrades_dict = NugetUtils.attempt_indirect_upgrade(deps_list, upgrade_dict, detect_jar, connectopts, bd)
     else:
         globals.printdebug(f'Cannot provide upgrade guidance for namepsace {pm}')
         os.chdir(origdir)
@@ -268,6 +273,8 @@ def normalise_dep(pm, compid):
         return NpmUtils.normalise_dep(compid)
     elif pm == 'maven':
         return MavenUtils.normalise_dep(compid)
+    elif pm == 'nuget':
+        return NugetUtils.normalise_dep(compid)
     else:
         return
 
